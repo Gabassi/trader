@@ -1,4 +1,6 @@
 import streamlit as st
+st.set_page_config(page_title="Trading Signals Dashboard", layout="wide", initial_sidebar_state="collapsed")
+
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -38,6 +40,10 @@ if 'start_time' not in st.session_state:
     st.session_state.start_time = default_start_time
 if 'end_time' not in st.session_state:
     st.session_state.end_time = default_end_time
+
+# Initialize session state for current page
+if 'current_page' not in st.session_state:
+    st.session_state.current_page = 'dashboard'
 
 # Market timezone mapping
 MARKET_TIMEZONES = {
@@ -524,195 +530,199 @@ def get_signals_for_market(symbol, timeframe, start_date, end_date, start_time=N
         st.error(f"Error processing data for {symbol}: {str(e)}")
         return None, None
 
-st.set_page_config(page_title="Trading Signals Dashboard", layout="wide", initial_sidebar_state="collapsed")
-st.title("📈 Trading Signals Dashboard")
-
-# Add auto-refresh controls in a more compact layout
-col1, col2, col3, col4 = st.columns([1, 2, 1, 1])
-with col1:
-    current_state = st.session_state.auto_refresh
-    new_state = st.checkbox("Auto-refresh", value=current_state)
-    if new_state != current_state:
-        st.session_state.auto_refresh = new_state
-        st.rerun()
-with col2:
-    if st.session_state.auto_refresh:
-        next_refresh = st.session_state.last_refresh + timedelta(seconds=st.session_state.refresh_interval)
-        st.markdown(f"**Last:** {st.session_state.last_refresh.strftime('%H:%M:%S')} (Next: {next_refresh.strftime('%H:%M:%S')})")
-    else:
-        st.markdown(f"**Last:** {st.session_state.last_refresh.strftime('%H:%M:%S')}")
-with col3:
-    if st.button("🔄 Refresh"):
-        st.session_state.last_refresh = datetime.now()
-        st.rerun()
-with col4:
-    st.session_state.show_only_signals = st.toggle("Show Only Signals", value=st.session_state.show_only_signals)
-
-# Market selection
-selected_market = st.selectbox(
-    "Select Market",
-    options=list(markets.keys()),
-    format_func=lambda x: f"{x} ({markets[x]})"
-)
-
-# More compact date and time selection
-col1, col2, col3 = st.columns([2, 1, 1])
-with col1:
-    # Get the current date
-    current_date = datetime.now().date()
+def main():
+    # Original dashboard content
+    st.title("📈 Trading Signals Dashboard")
     
-    # If it's weekend (5 = Saturday, 6 = Sunday), go back to Friday
-    if current_date.weekday() >= 5:
-        current_date = current_date - timedelta(days=current_date.weekday() - 4)
-    
-    selected_date = st.date_input("Date", current_date)
-    
-    # If user selects a weekend, automatically adjust to the previous Friday
-    if selected_date.weekday() >= 5:
-        selected_date = selected_date - timedelta(days=selected_date.weekday() - 4)
-        st.info(f"Adjusted to previous trading day: {selected_date}")
-with col2:
-    selected_timeframe = st.selectbox("Timeframe", timeframes, index=0)
-with col3:
-    st.write("")  # Empty space for alignment
-    st.write("")  # Empty space for alignment
-    if st.button("Full Day"):
-        st.session_state.start_time = time(9, 0)
-        st.session_state.end_time = time(17, 30)
-        st.rerun()
-
-# Time range selection in a more compact layout
-col1, col2 = st.columns(2)
-with col1:
-    start_time = st.time_input("Start", st.session_state.start_time, key="start_time_input")
-    if start_time != st.session_state.start_time:
-        st.session_state.start_time = start_time
-        st.rerun()
-with col2:
-    end_time = st.time_input("End", st.session_state.end_time, key="end_time_input")
-    if end_time != st.session_state.end_time:
-        st.session_state.end_time = end_time
-        st.rerun()
-
-# Quick time range buttons in a single row
-col1, col2, col3 = st.columns(3)
-with col1:
-    if st.button("Market Open"):
-        st.session_state.start_time = time(9, 0)
-        st.session_state.end_time = time(10, 30)
-        st.rerun()
-with col2:
-    if st.button("Morning"):
-        st.session_state.start_time = time(9, 0)
-        st.session_state.end_time = time(12, 0)
-        st.rerun()
-with col3:
-    if st.button("Afternoon"):
-        st.session_state.start_time = time(13, 0)
-        st.session_state.end_time = time(17, 0)
-        st.rerun()
-
-# Create a placeholder for the main content
-main_content = st.empty()
-
-# Main content update function
-def update_content():
-    with main_content.container():
-        symbol = markets[selected_market]
-        st.subheader(f"{selected_market} ({symbol})")
-        
-        # Get market trading hours
-        trading_hours = get_market_trading_hours(symbol)
-        
-        # Use session state times
-        current_start_time = st.session_state.start_time
-        current_end_time = st.session_state.end_time
-        
-        signals, data = get_signals_for_market(
-            symbol, 
-            selected_timeframe, 
-            selected_date, 
-            selected_date + timedelta(days=1),
-            current_start_time,
-            current_end_time
-        )
-        
-        if signals and data is not None and not data.empty:
-            # Create the chart with current time range
-            fig = create_candlestick_chart(data, symbol, start_time=current_start_time, end_time=current_end_time, signals=signals)
-            if fig is not None:
-                st.plotly_chart(fig, use_container_width=True)
-            
-            # Filter signals based on time range
-            signals_df = pd.DataFrame(signals)
-            if not signals_df.empty:
-                signals_df['timestamp'] = pd.to_datetime(signals_df['timestamp'])
-                mask = (signals_df['timestamp'].dt.time >= current_start_time) & (signals_df['timestamp'].dt.time <= current_end_time)
-                signals_df = signals_df[mask]
-                
-                # Filter for only signals if toggle is on
-                if st.session_state.show_only_signals:
-                    signals_df = signals_df[signals_df['action'].isin(['BUY', 'SELL'])]
-                    if signals_df.empty:
-                        st.info("No trading signals in the selected time range")
-                        return
-                
-                # Add signal strength indicator
-                signals_df['signal_strength'] = signals_df.apply(
-                    lambda row: '🟢 BUY' if row['action'] == 'BUY' else '🔴 SELL' if row['action'] == 'SELL' else '⚪', 
-                    axis=1
-                )
-                
-                # Format timestamp
-                signals_df['timestamp'] = signals_df['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
-                
-                # Filter out rows with no signals and no reasons
-                signals_df = signals_df[
-                    (signals_df['action'].isin(['BUY', 'SELL'])) | 
-                    (signals_df['reason'].apply(lambda x: len(x) > 0 if isinstance(x, list) else bool(x)))
-                ]
-                
-                if signals_df.empty:
-                    st.info("No significant signals or events in the selected time range")
-                    return
-                
-                # Format RSI values
-                signals_df['rsi'] = signals_df['rsi'].apply(lambda x: f"{x:.2f}" if pd.notnull(x) else "-")
-                
-                # Format reasons as bullet points
-                signals_df['reason'] = signals_df['reason'].apply(
-                    lambda x: "\n• " + "\n• ".join(x) if isinstance(x, list) and x else 
-                            "• " + x if x else ""
-                )
-                
-                # Reorder and select columns
-                columns = ['signal_strength', 'timestamp', 'price', 'rsi', 'bb_position', 'reason']
-                display_df = signals_df[columns].copy()
-                
-                # Rename columns for display
-                display_df.columns = ['Signal', 'Time', 'Price', 'RSI', 'BB Position', 'Reasons']
-                
-                # Display the table
-                st.markdown("### 🔔 Signals")
-                st.dataframe(
-                    display_df,
-                    use_container_width=True,
-                    height=400,
-                    hide_index=True,
-                    column_config={
-                        "Signal": st.column_config.Column(width="small"),
-                        "Time": st.column_config.Column(width="medium"),
-                        "Price": st.column_config.Column(width="small"),
-                        "RSI": st.column_config.Column(width="small"),
-                        "BB Position": st.column_config.Column(width="medium"),
-                        "Reasons": st.column_config.Column(width="large")
-                    }
-                )
+    # Add auto-refresh controls in a more compact layout
+    col1, col2, col3, col4 = st.columns([1, 2, 1, 1])
+    with col1:
+        current_state = st.session_state.auto_refresh
+        new_state = st.checkbox("Auto-refresh", value=current_state)
+        if new_state != current_state:
+            st.session_state.auto_refresh = new_state
+            st.rerun()
+    with col2:
+        if st.session_state.auto_refresh:
+            next_refresh = st.session_state.last_refresh + timedelta(seconds=st.session_state.refresh_interval)
+            st.markdown(f"**Last:** {st.session_state.last_refresh.strftime('%H:%M:%S')} (Next: {next_refresh.strftime('%H:%M:%S')})")
         else:
-            st.warning(f"No data available for {selected_market} on {selected_date}")
-        st.markdown("---")
+            st.markdown(f"**Last:** {st.session_state.last_refresh.strftime('%H:%M:%S')}")
+    with col3:
+        if st.button("🔄 Refresh"):
+            st.session_state.last_refresh = datetime.now()
+            st.rerun()
+    with col4:
+        st.session_state.show_only_signals = st.toggle("Show Only Signals", value=st.session_state.show_only_signals)
+    
+    # Market selection
+    selected_market = st.selectbox(
+        "Select Market",
+        options=list(markets.keys()),
+        format_func=lambda x: f"{x} ({markets[x]})"
+    )
 
-# Initial content update
-update_content()
+    # More compact date and time selection
+    col1, col2, col3 = st.columns([2, 1, 1])
+    with col1:
+        # Get the current date
+        current_date = datetime.now().date()
+        
+        # If it's weekend (5 = Saturday, 6 = Sunday), go back to Friday
+        if current_date.weekday() >= 5:
+            current_date = current_date - timedelta(days=current_date.weekday() - 4)
+        
+        selected_date = st.date_input("Date", current_date)
+        
+        # If user selects a weekend, automatically adjust to the previous Friday
+        if selected_date.weekday() >= 5:
+            selected_date = selected_date - timedelta(days=selected_date.weekday() - 4)
+            st.info(f"Adjusted to previous trading day: {selected_date}")
+    with col2:
+        selected_timeframe = st.selectbox("Timeframe", timeframes, index=0)
+    with col3:
+        st.write("")  # Empty space for alignment
+        st.write("")  # Empty space for alignment
+        if st.button("Full Day"):
+            st.session_state.start_time = time(9, 0)
+            st.session_state.end_time = time(17, 30)
+            st.rerun()
 
-st.caption("Signals are for informational purposes only. Refresh to update.") 
+    # Time range selection in a more compact layout
+    col1, col2 = st.columns(2)
+    with col1:
+        start_time = st.time_input("Start", st.session_state.start_time, key="start_time_input")
+        if start_time != st.session_state.start_time:
+            st.session_state.start_time = start_time
+            st.rerun()
+    with col2:
+        end_time = st.time_input("End", st.session_state.end_time, key="end_time_input")
+        if end_time != st.session_state.end_time:
+            st.session_state.end_time = end_time
+            st.rerun()
+
+    # Quick time range buttons in a single row
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        if st.button("Market Open"):
+            st.session_state.start_time = time(9, 0)
+            st.session_state.end_time = time(10, 30)
+            st.rerun()
+    with col2:
+        if st.button("Morning"):
+            st.session_state.start_time = time(9, 0)
+            st.session_state.end_time = time(12, 0)
+            st.rerun()
+    with col3:
+        if st.button("Afternoon"):
+            st.session_state.start_time = time(13, 0)
+            st.session_state.end_time = time(17, 0)
+            st.rerun()
+
+    # Create a placeholder for the main content
+    main_content = st.empty()
+
+    # Main content update function
+    def update_content():
+        with main_content.container():
+            symbol = markets[selected_market]
+            st.subheader(f"{selected_market} ({symbol})")
+            
+            # Get market trading hours
+            trading_hours = get_market_trading_hours(symbol)
+            
+            # Use session state times
+            current_start_time = st.session_state.start_time
+            current_end_time = st.session_state.end_time
+            
+            signals, data = get_signals_for_market(
+                symbol, 
+                selected_timeframe, 
+                selected_date, 
+                selected_date + timedelta(days=1),
+                current_start_time,
+                current_end_time
+            )
+            
+            if signals and data is not None and not data.empty:
+                # Create the chart with current time range
+                fig = create_candlestick_chart(data, symbol, start_time=current_start_time, end_time=current_end_time, signals=signals)
+                if fig is not None:
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                # Filter signals based on time range
+                signals_df = pd.DataFrame(signals)
+                if not signals_df.empty:
+                    signals_df['timestamp'] = pd.to_datetime(signals_df['timestamp'])
+                    mask = (signals_df['timestamp'].dt.time >= current_start_time) & (signals_df['timestamp'].dt.time <= current_end_time)
+                    signals_df = signals_df[mask]
+                    
+                    # Filter for only signals if toggle is on
+                    if st.session_state.show_only_signals:
+                        signals_df = signals_df[signals_df['action'].isin(['BUY', 'SELL'])]
+                        if signals_df.empty:
+                            st.info("No trading signals in the selected time range")
+                            return
+                    
+                    # Add signal strength indicator
+                    signals_df['signal_strength'] = signals_df.apply(
+                        lambda row: '🟢 BUY' if row['action'] == 'BUY' else '🔴 SELL' if row['action'] == 'SELL' else '⚪', 
+                        axis=1
+                    )
+                    
+                    # Format timestamp
+                    signals_df['timestamp'] = signals_df['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
+                    
+                    # Filter out rows with no signals and no reasons
+                    signals_df = signals_df[
+                        (signals_df['action'].isin(['BUY', 'SELL'])) | 
+                        (signals_df['reason'].apply(lambda x: len(x) > 0 if isinstance(x, list) else bool(x)))
+                    ]
+                    
+                    if signals_df.empty:
+                        st.info("No significant signals or events in the selected time range")
+                        return
+                    
+                    # Format RSI values
+                    signals_df['rsi'] = signals_df['rsi'].apply(lambda x: f"{x:.2f}" if pd.notnull(x) else "-")
+                    
+                    # Format reasons as bullet points
+                    signals_df['reason'] = signals_df['reason'].apply(
+                        lambda x: "\n• " + "\n• ".join(x) if isinstance(x, list) and x else 
+                                "• " + x if x else ""
+                    )
+                    
+                    # Reorder and select columns
+                    columns = ['signal_strength', 'timestamp', 'price', 'rsi', 'bb_position', 'reason']
+                    display_df = signals_df[columns].copy()
+                    
+                    # Rename columns for display
+                    display_df.columns = ['Signal', 'Time', 'Price', 'RSI', 'BB Position', 'Reasons']
+                    
+                    # Display the table
+                    st.markdown("### 🔔 Signals")
+                    st.dataframe(
+                        display_df,
+                        use_container_width=True,
+                        height=400,
+                        hide_index=True,
+                        column_config={
+                            "Signal": st.column_config.Column(width="small"),
+                            "Time": st.column_config.Column(width="medium"),
+                            "Price": st.column_config.Column(width="small"),
+                            "RSI": st.column_config.Column(width="small"),
+                            "BB Position": st.column_config.Column(width="medium"),
+                            "Reasons": st.column_config.Column(width="large")
+                        }
+                    )
+            else:
+                st.warning(f"No data available for {selected_market} on {selected_date}")
+            st.markdown("---")
+
+    # Initial content update
+    update_content()
+
+    st.caption("Signals are for informational purposes only. Refresh to update.")
+
+if __name__ == "__main__":
+    main() 

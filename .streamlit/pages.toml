@@ -1,0 +1,9 @@
+[[pages]]
+path = "dashboard.py"
+name = "Dashboard"
+icon = "📈"
+
+[[pages]]
+path = "pages/realtime.py"
+name = "Real-time Monitor"
+icon = "🔄" 
